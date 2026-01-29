@@ -35,23 +35,37 @@ function prompt {
 function gpush {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$m,
-
-        [string]$r
+        [string]$m
     )
-	
-    git commit -a -m "$m"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Commit failure." -ForegroundColor Red
+
+    $gitDir = git rev-parse --git-dir 2>$null
+    if (-not $gitDir) {
+        Write-Host "You must run gpush inside a Git repository." -ForegroundColor Red
         return
     }
-    $remoteBranch = if ($r) { $r } else { "master" }
-    Write-Host "Pushing to origin $remoteBranch" -ForegroundColor Cyan
-    git push origin $remoteBranch
-}
 
-function repos {
-    Set-Location "C:\xampp\htdocs"
+    $currentBranch = git rev-parse --abbrev-ref HEAD
+    if (-not $currentBranch) {
+        Write-Host "Could not determine current branch." -ForegroundColor Red
+        return
+    }
+
+    Write-Host "Committing changes on branch '$currentBranch'" -ForegroundColor Cyan
+
+    git add -A
+    git commit -m "$m" 2>$null
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "No changes to commit, continuing..." -ForegroundColor Yellow
+    }
+
+    $remoteBranches = git ls-remote --heads origin $currentBranch
+    if (-not $remoteBranches) {
+        Write-Host "Remote branch '$currentBranch' does not exist, creating it..." -ForegroundColor Cyan
+    }
+
+    Write-Host "Pushing branch '$currentBranch' to origin" -ForegroundColor Cyan
+    git push -u origin $currentBranch
 }
 
 function branch {
@@ -60,17 +74,20 @@ function branch {
         [string]$b
     )
 
-    $branchName = $b.ToLower() `
-        -replace '\s+', '-' `
-        -replace '[^a-z0-9\-_]', ''
-
+    $branchName = $b.ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-_]', ''
     if (-not $branchName) {
-        Write-Host "Invalid branch name!" -ForegroundColor Red
+        Write-Host "Invalid branch name" -ForegroundColor Red
         return
     }
+
     Write-Host "Creating branch '$branchName'" -ForegroundColor Cyan
+
     git checkout -b $branchName
-    if ($LASTEXITCODE -ne 0) { return }
+
+    if (-not (git rev-parse --verify HEAD 2>$null)) {
+        git commit --allow-empty -m "First commit $branchName"
+    }
+
     git push -u origin $branchName
 }
 
@@ -117,4 +134,8 @@ function gclone {
     } else {
         Write-Host "Cloning error '$remoteUrl'" -ForegroundColor Red
     }
+}
+
+function repos {
+	Set-Location "C:\xampp\htdocs\"
 }
