@@ -70,44 +70,83 @@ function gpush {
 
 function branch {
     param (
-        [Parameter(Mandatory=$true)]
-        [string]$b
+        [Parameter(Mandatory = $true, Position = 0)]
+        [string]$c
     )
 
-    $branchName = $b.ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-_]', ''
+    $branchName = $c -replace '\s+', '-' -replace '[^a-zA-Z0-9\-_]', ''
     if (-not $branchName) {
         Write-Host "Invalid branch name" -ForegroundColor Red
         return
     }
 
-    Write-Host "Creating branch '$branchName'" -ForegroundColor Cyan
-
-    git checkout -b $branchName
-
-    if (-not (git rev-parse --verify HEAD 2>$null)) {
-        git commit --allow-empty -m "First commit $branchName"
+    $branchExists = git show-ref --verify --quiet "refs/heads/$branchName"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Branch '$branchName' already exists. Checking out..." -ForegroundColor Yellow
+        git checkout $branchName
+        return
     }
 
+    Write-Host "Creating branch '$branchName' from current branch" -ForegroundColor Cyan
+
+    git checkout -b $branchName
     git push -u origin $branchName
 }
 
 function gcheckout {
     param (
-        [string]$flag,
-        [string]$name
+        [string]$arg1,
+        [string]$arg2
     )
 
-    if ($flag -ne "-b" -or -not $name) {
-        Write-Host "ERROR: Correct usage: gcheckout -b branch_name"
+    if ($arg1 -eq "-b") {
+        if (-not $arg2) {
+            Write-Host "ERROR: Missing branch name"
+            return
+        }
+
+        git checkout -b $arg2
+    }
+    else {
+        if (-not $arg1) {
+            Write-Host "ERROR: Missing branch name"
+            return
+        }
+
+        git checkout $arg1
+    }
+}
+
+function grename {
+    param (
+        [string]$o,
+        [Parameter(Mandatory = $true)]
+        [string]$n
+    )
+
+    if (-not $o) {
+        $o = (git rev-parse --abbrev-ref HEAD).Trim()
+        if (-not $o) {
+            Write-Host "ERROR: Could not determine current branch" -ForegroundColor Red
+            return
+        }
+    }
+
+    $newName = $n -replace '\s+', '-' -replace '[^a-zA-Z0-9\-_]', ''
+    if (-not $newName) {
+        Write-Host "ERROR: Invalid new branch name" -ForegroundColor Red
         return
     }
 
-    git checkout -b $name
-}
+    Write-Host "Renaming branch '$o' > '$newName'" -ForegroundColor Cyan
 
-function gpull {
-    git fetch --all
-    git pull
+    git branch -m $o $newName
+    $remoteExists = git ls-remote --heads origin $o
+    if ($remoteExists) {
+        git push origin :$o
+    }
+
+    git push -u origin $newName
 }
 
 function gclone {
@@ -133,6 +172,77 @@ function gclone {
         Write-Host "Repository has been successfully cloned" -ForegroundColor Green
     } else {
         Write-Host "Cloning error '$remoteUrl'" -ForegroundColor Red
+    }
+}
+
+function gtomaster {
+    $currentBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+    if (-not $currentBranch) {
+        Write-Host "ERROR: Could not determine current branch" -ForegroundColor Red
+        return
+    }
+
+    if ($currentBranch -eq "master") {
+        Write-Host "Already on master" -ForegroundColor Yellow
+        return
+    }
+
+    git show-ref --verify --quiet refs/heads/master
+    $masterExists = ($LASTEXITCODE -eq 0)
+
+    if (-not $masterExists) {
+        Write-Host "Master branch does not exist. Creating it..." -ForegroundColor Cyan
+        git checkout -b master
+    }
+    else {
+        git checkout master
+    }
+
+    Write-Host "Merging '$currentBranch' > master" -ForegroundColor Cyan
+    git merge $currentBranch
+
+    git checkout $currentBranch
+}
+
+function gdelete {
+    param (
+        [string]$b
+    )
+
+    if ($b) {
+        $targetBranch = $b
+    }
+    else {
+        $targetBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+    }
+
+    if (-not $targetBranch) {
+        Write-Host "ERROR: Could not determine target branch" -ForegroundColor Red
+        return
+    }
+
+    if ($targetBranch -eq "master") {
+        Write-Host "ERROR: You cannot delete 'master'" -ForegroundColor Red
+        return
+    }
+
+    git show-ref --verify --quiet refs/heads/master
+    $masterExists = ($LASTEXITCODE -eq 0)
+
+    if (-not $masterExists) {
+        Write-Host "Master does not exist. Creating it..." -ForegroundColor Cyan
+        git checkout -b master
+    }
+    else {
+        git checkout master
+    }
+
+    Write-Host "Deleting branch '$targetBranch'" -ForegroundColor Cyan
+
+    git branch -D $targetBranch
+    $remoteExists = git ls-remote --heads origin $targetBranch
+    if ($remoteExists) {
+        git push origin --delete $targetBranch
     }
 }
 
